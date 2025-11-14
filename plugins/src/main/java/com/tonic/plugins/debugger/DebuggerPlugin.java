@@ -1,4 +1,4 @@
-package com.tonic.plugins.menudebugger;
+package com.tonic.plugins.debugger;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -20,30 +20,35 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @PluginDescriptor(
-        name = "# Menu Debugger",
-        description = "Logs menu actions and copies them to clipboard automatically",
-        tags = {"menu", "debug", "developer"}
+        name = "# Debugger",
+        description = "Logs actions and copies them to clipboard automatically",
+        tags = {"debugger", "developer"}
 )
-public class MenuDebuggerPlugin extends Plugin
+public class DebuggerPlugin extends Plugin
 {
     @Inject
     private Client client;
 
     @Inject
-    private MenuDebuggerConfig config;
+    private DebuggerConfig config;
+
+    @Inject
+    private QueryFormatter queryFormatter;
 
     private final Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private final List<ChatMessageData> recentChatMessages = new ArrayList<>();
     private static final long CHAT_MESSAGE_BUFFER_MS = 3000; // Keep messages for 3 seconds
 
     @Provides
-    MenuDebuggerConfig provideConfig(ConfigManager configManager)
+    DebuggerConfig provideConfig(ConfigManager configManager)
     {
-        return configManager.getConfig(MenuDebuggerConfig.class);
+        return configManager.getConfig(DebuggerConfig.class);
     }
 
     @Override
@@ -158,8 +163,25 @@ public class MenuDebuggerPlugin extends Plugin
             }
         }
 
-        // Format the output (always use JSON)
-        String output = formatAsJson(data);
+        // Format the output based on config
+        String output;
+        if (config.outputFormat() == DebuggerConfig.OutputFormat.FORMATTED_QUERY)
+        {
+            output = queryFormatter.format(
+                    data.type,
+                    data.name,
+                    data.id,
+                    data.option,
+                    data.menuAction,
+                    data.worldPoint,
+                    data.widget,
+                    data.availableOptions
+            );
+        }
+        else
+        {
+            output = formatAsJson(data);
+        }
 
         // Log to console if enabled
         if (config.logToConsole())

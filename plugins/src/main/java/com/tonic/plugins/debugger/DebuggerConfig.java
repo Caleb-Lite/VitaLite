@@ -1,12 +1,12 @@
-package com.tonic.plugins.menudebugger;
+package com.tonic.plugins.debugger;
 
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
 
-@ConfigGroup("menudebugger")
-public interface MenuDebuggerConfig extends Config
+@ConfigGroup("debugger")
+public interface DebuggerConfig extends Config
 {
     @ConfigSection(
             name = "General",
@@ -14,6 +14,24 @@ public interface MenuDebuggerConfig extends Config
             position = 0
     )
     String generalSection = "general";
+
+    enum OutputFormat
+    {
+        JSON,
+        FORMATTED_QUERY
+    }
+
+    @ConfigItem(
+            keyName = "outputFormat",
+            name = "Output Format",
+            description = "Choose between JSON data or formatted query code",
+            position = 0,
+            section = generalSection
+    )
+    default OutputFormat outputFormat()
+    {
+        return OutputFormat.JSON;
+    }
 
     @ConfigItem(
             keyName = "autoCopy",
