@@ -32,3 +32,23 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
+
+tasks.register<Copy>("copyToExternalPlugins") {
+    dependsOn(tasks.jar)
+    from(tasks.named<Jar>("jar").flatMap { it.archiveFile })
+    into(System.getProperty("user.home") + "/.runelite/externalplugins")
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+
+    outputs.upToDateWhen { false }
+
+    doFirst {
+        val targetDir = file(System.getProperty("user.home") + "/.runelite/externalplugins")
+        if (!targetDir.exists()) {
+            targetDir.mkdirs()
+        }
+    }
+}
+
+tasks.jar {
+    finalizedBy("copyToExternalPlugins")
+}
