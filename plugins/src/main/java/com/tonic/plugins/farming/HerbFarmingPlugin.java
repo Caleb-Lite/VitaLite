@@ -53,7 +53,7 @@ public class HerbFarmingPlugin extends Plugin {
 
     // Track last processed tick for each patch to avoid spam
     private final Map<HerbPatch, Integer> lastProcessedTick = new HashMap<>();
-    private static final int PROCESS_COOLDOWN_TICKS = 2;
+    private static final int PROCESS_COOLDOWN_TICKS = 1;
 
     // Track last action tick globally to prevent multiple actions per tick
     private int lastActionTick = 0;
@@ -72,6 +72,8 @@ public class HerbFarmingPlugin extends Plugin {
     );
 
     private Future<?> walkerTask;
+    private HerbPatch walkingToPatch;
+    private WorldPoint walkingDestination;
 
     @Provides
     HerbFarmingConfig provideConfig(ConfigManager configManager) {
@@ -174,7 +176,7 @@ public class HerbFarmingPlugin extends Plugin {
         }
 
         // Check each enabled patch
-        boolean localPatchNeedsAttention = false;
+        boolean localPatchNeedsVisit = false;
         boolean cancelledWalkerThisTick = false;
         for (HerbPatch patch : HerbPatch.values()) {
             // Skip if patch is not enabled
@@ -183,16 +185,23 @@ public class HerbFarmingPlugin extends Plugin {
             }
 
             boolean patchInRegion = HerbPatchRegions.isRegionForPatch(patch, playerRegionId);
-            if (patchInRegion && patchNeedsAttention(patch)) {
-                localPatchNeedsAttention = true;
-                if (!cancelledWalkerThisTick && (walkerTask != null || Walker.isWalking())) {
+            boolean walkingToThisPatch = isWalkingToPatch(patch);
+            boolean waitingForWalker = walkingToThisPatch && !hasReachedWalkDestination(playerLocation);
+
+            if (patchInRegion && patchNeedsVisit(patch)) {
+                localPatchNeedsVisit = true;
+                if (waitingForWalker) {
+                    continue;
+                }
+
+                if (!cancelledWalkerThisTick && isWalkerActive() && !walkingToThisPatch) {
                     cancelWalkingTask();
                     cancelledWalkerThisTick = true;
                 }
             }
 
             // Skip if patch is not in current region
-            if (!patchInRegion) {
+            if (!patchInRegion || waitingForWalker) {
                 continue;
             }
 
@@ -213,7 +222,7 @@ public class HerbFarmingPlugin extends Plugin {
             }
         }
 
-        if (!localPatchNeedsAttention) {
+        if (!localPatchNeedsVisit) {
             attemptWalkToNextPatch(playerLocation);
         }
     }
@@ -296,7 +305,13 @@ public class HerbFarmingPlugin extends Plugin {
     private void cleanupCompletedWalk() {
         if (walkerTask != null && walkerTask.isDone()) {
             walkerTask = null;
+            clearWalkTarget();
         }
+    }
+
+    private void clearWalkTarget() {
+        walkingToPatch = null;
+        walkingDestination = null;
     }
 
     private void updateVisiblePatchStates() {
@@ -316,8 +331,24 @@ public class HerbFarmingPlugin extends Plugin {
         }
     }
 
-    private boolean patchNeedsAttention(HerbPatch patch) {
-        return ATTENTION_STATES.contains(getPatchState(patch));
+    private boolean patchNeedsVisit(HerbPatch patch) {
+        PlantState state = getPatchState(patch);
+        return state == PlantState.UNKNOWN || ATTENTION_STATES.contains(state);
+    }
+
+    private boolean isWalkingToPatch(HerbPatch patch) {
+        return patch != null && patch == walkingToPatch && isWalkerActive();
+    }
+
+    private boolean isWalkerActive() {
+        return (walkerTask != null && !walkerTask.isDone()) || Walker.isWalking();
+    }
+
+    private boolean hasReachedWalkDestination(WorldPoint playerLocation) {
+        if (walkingDestination == null || playerLocation == null) {
+            return true;
+        }
+        return playerLocation.distanceTo(walkingDestination) == 0;
     }
 
     private void attemptWalkToNextPatch(WorldPoint playerLocation) {
@@ -328,19 +359,21 @@ public class HerbFarmingPlugin extends Plugin {
             return;
         }
 
-        HerbPatch target = findNextPatchNeedingAttention(playerLocation);
+        HerbPatch target = findNextPatchNeedingVisit(playerLocation);
         if (target == null) {
             return;
         }
 
         WorldPoint destination = HerbPatchTravelPoints.get(target);
+        walkingToPatch = target;
+        walkingDestination = destination;
         Logger.info("[Farming] Walking to " + target.getName() + " patch (" + getPatchState(target) + ") via " + destination);
         walkerTask = ThreadPool.submit(() -> {
             Walker.walkTo(destination, () -> shouldCancelWalk(target));
         });
     }
 
-    private HerbPatch findNextPatchNeedingAttention(WorldPoint playerLocation) {
+    private HerbPatch findNextPatchNeedingVisit(WorldPoint playerLocation) {
         int currentRegionId = playerLocation.getRegionID();
         HerbPatch candidate = null;
         int closestDistance = Integer.MAX_VALUE;
@@ -354,7 +387,7 @@ public class HerbFarmingPlugin extends Plugin {
                 continue;
             }
 
-            if (!patchNeedsAttention(patch)) {
+            if (!patchNeedsVisit(patch)) {
                 continue;
             }
 
@@ -372,7 +405,7 @@ public class HerbFarmingPlugin extends Plugin {
     private boolean shouldCancelWalk(HerbPatch patch) {
         return patch == null ||
                 !HerbPatchHelper.isPatchEnabled(patch, config) ||
-                !patchNeedsAttention(patch);
+                !patchNeedsVisit(patch);
     }
 
     private void cancelWalkingTask() {
@@ -381,6 +414,7 @@ public class HerbFarmingPlugin extends Plugin {
             walkerTask.cancel(true);
         }
         walkerTask = null;
+        clearWalkTarget();
     }
 
     /**

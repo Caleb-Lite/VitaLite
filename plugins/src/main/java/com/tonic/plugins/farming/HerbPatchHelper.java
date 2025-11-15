@@ -7,6 +7,7 @@ import com.tonic.api.widgets.InventoryAPI;
 import com.tonic.data.LayoutView;
 import com.tonic.data.wrappers.ItemEx;
 import com.tonic.data.wrappers.NpcEx;
+import com.tonic.data.wrappers.PlayerEx;
 import com.tonic.data.wrappers.TileObjectEx;
 import com.tonic.util.ClickManagerUtil;
 import com.tonic.plugins.farming.enums.HerbPatch;
@@ -99,6 +100,11 @@ public class HerbPatchHelper {
         }
     }
 
+    private boolean canPerformAction() {
+        PlayerEx player = PlayerEx.getLocal();
+        return player != null && player.isIdle();
+    }
+
     /**
      * Rakes weeds from a herb patch.
      *
@@ -106,6 +112,10 @@ public class HerbPatchHelper {
      * @return true if the rake action was initiated, false otherwise
      */
     public boolean rakePatch(HerbPatch patch) {
+        if (!canPerformAction()) {
+            return false;
+        }
+
         TileObjectEx patchObj = findPatch(patch);
         if (patchObj == null) {
             return false;
@@ -128,6 +138,10 @@ public class HerbPatchHelper {
      * @return true if the planting action was initiated, false otherwise
      */
     public boolean plantSeed(HerbPatch patch, int seedId) {
+        if (!canPerformAction()) {
+            return false;
+        }
+
         TileObjectEx patchObj = findPatch(patch);
         if (patchObj == null) {
             return false;
@@ -151,6 +165,10 @@ public class HerbPatchHelper {
      * @return true if the compost action was initiated, false otherwise
      */
     public boolean applyCompost(HerbPatch patch) {
+        if (!canPerformAction()) {
+            return false;
+        }
+
         TileObjectEx patchObj = findPatch(patch);
         if (patchObj == null) {
             return false;
@@ -186,6 +204,10 @@ public class HerbPatchHelper {
      * @return true if the clear action was initiated, false otherwise
      */
     public boolean clearPatch(HerbPatch patch) {
+        if (!canPerformAction()) {
+            return false;
+        }
+
         TileObjectEx patchObj = findPatch(patch);
         if (patchObj == null) {
             return false;
@@ -207,6 +229,10 @@ public class HerbPatchHelper {
      * @return true if the harvest action was initiated, false otherwise
      */
     public boolean harvestPatch(HerbPatch patch) {
+        if (!canPerformAction()) {
+            return false;
+        }
+
         TileObjectEx patchObj = findPatch(patch);
         if (patchObj == null) {
             Logger.info("[Farming] [" + patch.getName() + "]: Patch object not found at " + patch.getLocation());
@@ -241,6 +267,10 @@ public class HerbPatchHelper {
      * @return true if a note action was initiated, false otherwise
      */
     public boolean noteGrimyHerbs(HerbFarmingConfig config) {
+        if (!canPerformAction()) {
+            return false;
+        }
+
         int herbId = getConfiguredGrimyHerbId(config);
         if (herbId == -1) {
             return false;
@@ -307,6 +337,10 @@ public class HerbPatchHelper {
      * @return true if an action was performed, false otherwise
      */
     public boolean processHerbPatch(HerbPatch patch) {
+        if (!canPerformAction()) {
+            return false;
+        }
+
         PlantState state = HerbPatchChecker.checkHerbPatch(client, patch);
         updateCompostTracking(patch, state);
 
@@ -496,6 +530,10 @@ public class HerbPatchHelper {
             return false; // User doesn't want to apply compost
         }
 
+        if (!canPerformAction()) {
+            return false;
+        }
+
         TileObjectEx patchObj = findPatch(patch);
         if (patchObj == null) {
             return false;
@@ -534,6 +572,10 @@ public class HerbPatchHelper {
      * @return true if an action was performed, false otherwise
      */
     public boolean processHerbPatchWithConfig(HerbPatch patch, HerbFarmingConfig config) {
+        if (!canPerformAction()) {
+            return false;
+        }
+
         PlantState state = HerbPatchChecker.checkHerbPatch(client, patch);
         updateCompostTracking(patch, state);
 
