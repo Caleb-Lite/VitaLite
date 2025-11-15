@@ -41,7 +41,6 @@ public class HerbPatchHelper {
     // Farming tool IDs
     private static final int RAKE = 5341;
     private static final int SPADE = 952;
-    private static final int PLANT_CURE = 6036;
     private static final int WEEDS = 6055;
 
     private final Client client;
@@ -181,28 +180,6 @@ public class HerbPatchHelper {
     }
 
     /**
-     * Cures a diseased herb patch with plant cure.
-     *
-     * @param patch The herb patch to cure
-     * @return true if the cure action was initiated, false otherwise
-     */
-    public boolean curePatch(HerbPatch patch) {
-        TileObjectEx patchObj = findPatch(patch);
-        if (patchObj == null) {
-            return false;
-        }
-
-        ItemEx plantCure = InventoryAPI.getItem(PLANT_CURE);
-        if (plantCure == null) {
-            return false;
-        }
-
-        ClickManagerUtil.queueClickBox(LayoutView.SIDE_MENU.getWidget());
-        InventoryAPI.useOn(plantCure, patchObj);
-        return true;
-    }
-
-    /**
      * Clears dead herbs from a patch.
      *
      * @param patch The herb patch to clear
@@ -305,7 +282,7 @@ public class HerbPatchHelper {
                         .withNameContains("seed")
                         .count() > 0;
             case DISEASED:
-                return InventoryAPI.contains(PLANT_CURE);
+                return false;
             case DEAD:
                 return InventoryAPI.contains(SPADE);
             case GROWING:
@@ -359,7 +336,7 @@ public class HerbPatchHelper {
                 return false;
 
             case DISEASED:
-                return curePatch(patch);
+                return false;
 
             case DEAD:
                 return clearPatch(patch);
@@ -578,7 +555,7 @@ public class HerbPatchHelper {
                 return false;
 
             case DISEASED:
-                return curePatch(patch);
+                return false;
 
             case DEAD:
                 return clearPatch(patch);

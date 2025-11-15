@@ -133,11 +133,7 @@ public class HerbFarmingPlugin extends Plugin {
         int playerRegionId = playerLocation.getRegionID();
         cleanupCompletedWalk();
 
-        // Update patch state cache for all patches
-        for (HerbPatch patch : HerbPatch.values()) {
-            PlantState state = HerbPatchChecker.checkHerbPatch(client, patch);
-            patchStateCache.put(patch, state);
-        }
+        updateVisiblePatchStates();
 
         int currentTick = client.getTickCount();
 
@@ -146,7 +142,7 @@ public class HerbFarmingPlugin extends Plugin {
             // Only log if there's a HARVESTABLE patch in current region (avoid noise)
             for (HerbPatch patch : HerbPatch.values()) {
                 if (HerbPatchHelper.isPatchEnabled(patch, config) &&
-                        patch.getRegionId() == playerRegionId &&
+                        HerbPatchRegions.isRegionForPatch(patch, playerRegionId) &&
                         patchStateCache.get(patch) == PlantState.HARVESTABLE) {
                     Logger.info("[Farming] [" + patch.getName() + "]: Player not idle, skipping harvest");
                     break;
@@ -186,7 +182,7 @@ public class HerbFarmingPlugin extends Plugin {
                 continue;
             }
 
-            boolean patchInRegion = patch.getRegionId() == playerRegionId;
+            boolean patchInRegion = HerbPatchRegions.isRegionForPatch(patch, playerRegionId);
             if (patchInRegion && patchNeedsAttention(patch)) {
                 localPatchNeedsAttention = true;
                 if (!cancelledWalkerThisTick && (walkerTask != null || Walker.isWalking())) {
@@ -254,7 +250,7 @@ public class HerbFarmingPlugin extends Plugin {
             return false;
         }
 
-        return patch.getRegionId() == playerLocation.getRegionID();
+        return HerbPatchRegions.isRegionForPatch(patch, playerLocation.getRegionID());
     }
 
     /**
@@ -303,6 +299,23 @@ public class HerbFarmingPlugin extends Plugin {
         }
     }
 
+    private void updateVisiblePatchStates() {
+        int[] mapRegions = client.getMapRegions();
+        if (mapRegions == null) {
+            return;
+        }
+
+        Set<HerbPatch> updated = EnumSet.noneOf(HerbPatch.class);
+        for (int regionId : mapRegions) {
+            for (HerbPatch patch : HerbPatchRegions.getPatchesForRegion(regionId)) {
+                if (updated.add(patch)) {
+                    PlantState state = HerbPatchChecker.checkHerbPatch(client, patch);
+                    patchStateCache.put(patch, state);
+                }
+            }
+        }
+    }
+
     private boolean patchNeedsAttention(HerbPatch patch) {
         return ATTENTION_STATES.contains(getPatchState(patch));
     }
@@ -337,7 +350,7 @@ public class HerbFarmingPlugin extends Plugin {
                 continue;
             }
 
-            if (patch.getRegionId() == currentRegionId) {
+            if (HerbPatchRegions.isRegionForPatch(patch, currentRegionId)) {
                 continue;
             }
 
@@ -389,7 +402,7 @@ public class HerbFarmingPlugin extends Plugin {
                 continue;
             }
 
-            if (patch.getRegionId() != playerRegionId) {
+            if (!HerbPatchRegions.isRegionForPatch(patch, playerRegionId)) {
                 continue;
             }
 
