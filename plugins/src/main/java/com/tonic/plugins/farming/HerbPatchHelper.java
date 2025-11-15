@@ -1,19 +1,24 @@
 package com.tonic.plugins.farming;
 
 import com.tonic.Logger;
+import com.tonic.api.entities.NpcAPI;
 import com.tonic.api.entities.TileObjectAPI;
 import com.tonic.api.widgets.InventoryAPI;
 import com.tonic.data.LayoutView;
 import com.tonic.data.wrappers.ItemEx;
+import com.tonic.data.wrappers.NpcEx;
 import com.tonic.data.wrappers.TileObjectEx;
 import com.tonic.util.ClickManagerUtil;
 import com.tonic.plugins.farming.enums.HerbPatch;
 import com.tonic.plugins.farming.enums.PlantState;
 import net.runelite.api.Client;
+import net.runelite.api.ItemID;
 import net.runelite.api.coords.WorldPoint;
 
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -40,9 +45,13 @@ public class HerbPatchHelper {
     private static final int WEEDS = 6055;
 
     private final Client client;
+    private final Map<HerbPatch, Boolean> compostApplied = new EnumMap<>(HerbPatch.class);
 
     public HerbPatchHelper(Client client) {
         this.client = Objects.requireNonNull(client, "Client cannot be null");
+        for (HerbPatch patch : HerbPatch.values()) {
+            compostApplied.put(patch, false);
+        }
     }
 
     /**
@@ -52,9 +61,14 @@ public class HerbPatchHelper {
      * @return The TileObjectEx if found, null otherwise
      */
     public TileObjectEx findPatchAt(WorldPoint location) {
+        int regionId = location.getRegionID();
         return TileObjectAPI.search()
                 .withId(HERB_PATCH_IDS.stream().mapToInt(Integer::intValue).toArray())
-                .atLocation(location)
+                .keepIf(obj -> {
+                    WorldPoint wp = obj.getWorldPoint();
+                    return wp != null && wp.getRegionID() == regionId;
+                })
+                .sortNearest(location)
                 .first();
     }
 
@@ -66,6 +80,24 @@ public class HerbPatchHelper {
      */
     public TileObjectEx findPatch(HerbPatch patch) {
         return findPatchAt(patch.getLocation());
+    }
+
+    private void resetCompostStatus(HerbPatch patch) {
+        compostApplied.put(patch, false);
+    }
+
+    private void markCompostApplied(HerbPatch patch) {
+        compostApplied.put(patch, true);
+    }
+
+    private boolean hasCompostApplied(HerbPatch patch) {
+        return compostApplied.getOrDefault(patch, false);
+    }
+
+    private void updateCompostTracking(HerbPatch patch, PlantState state) {
+        if (state == PlantState.WEEDS || state == PlantState.DEAD || state == PlantState.HARVESTABLE) {
+            resetCompostStatus(patch);
+        }
     }
 
     /**
@@ -226,6 +258,38 @@ public class HerbPatchHelper {
     }
 
     /**
+     * Notes grimy herbs by using them on the nearest Tool Leprechaun.
+     *
+     * @param config The farming configuration to determine which herb to note
+     * @return true if a note action was initiated, false otherwise
+     */
+    public boolean noteGrimyHerbs(HerbFarmingConfig config) {
+        int herbId = getConfiguredGrimyHerbId(config);
+        if (herbId == -1) {
+            return false;
+        }
+
+        ItemEx herb = InventoryAPI.getItem(herbId);
+        if (herb == null) {
+            return false;
+        }
+
+        NpcEx leprechaun = NpcAPI.search()
+                .withNameContains("Tool Leprechaun")
+                .within(15)
+                .nearest();
+
+        if (leprechaun == null) {
+            return false;
+        }
+
+        Logger.info("[Farming]: Noting grimy herbs with Tool Leprechaun");
+        ClickManagerUtil.queueClickBox(LayoutView.SIDE_MENU.getWidget());
+        InventoryAPI.useOn(herb, leprechaun);
+        return true;
+    }
+
+    /**
      * Checks if inventory has the required items for a given patch state.
      *
      * @param state The plant state to check requirements for
@@ -267,12 +331,21 @@ public class HerbPatchHelper {
      */
     public boolean processHerbPatch(HerbPatch patch) {
         PlantState state = HerbPatchChecker.checkHerbPatch(client, patch);
+        updateCompostTracking(patch, state);
 
         switch (state) {
             case WEEDS:
                 return rakePatch(patch);
 
             case PLANT:
+                if (!hasCompostApplied(patch)) {
+                    boolean composted = applyCompost(patch);
+                    if (composted) {
+                        markCompostApplied(patch);
+                        return true;
+                    }
+                }
+
                 // Try to plant the first available seed
                 ItemEx seed = InventoryAPI.search()
                         .withNameContains("seed")
@@ -283,7 +356,7 @@ public class HerbPatchHelper {
                 break;
 
             case GROWING:
-                return applyCompost(patch);
+                return false;
 
             case DISEASED:
                 return curePatch(patch);
@@ -357,6 +430,47 @@ public class HerbPatchHelper {
                 return 5304;  // ItemID.TORSTOL_SEED
             default:
                 return 5295;  // Default to Ranarr
+        }
+    }
+
+    /**
+     * Gets the ItemID for the configured grimy herb.
+     *
+     * @param config The farming config
+     * @return The grimy herb item id, or -1 if unsupported
+     */
+    public static int getConfiguredGrimyHerbId(HerbFarmingConfig config) {
+        switch (config.herbType()) {
+            case GUAM:
+                return ItemID.GRIMY_GUAM_LEAF;
+            case MARRENTILL:
+                return ItemID.GRIMY_MARRENTILL;
+            case TARROMIN:
+                return ItemID.GRIMY_TARROMIN;
+            case HARRALANDER:
+                return ItemID.GRIMY_HARRALANDER;
+            case RANARR:
+                return ItemID.GRIMY_RANARR_WEED;
+            case TOADFLAX:
+                return ItemID.GRIMY_TOADFLAX;
+            case IRIT:
+                return ItemID.GRIMY_IRIT_LEAF;
+            case AVANTOE:
+                return ItemID.GRIMY_AVANTOE;
+            case KWUARM:
+                return ItemID.GRIMY_KWUARM;
+            case SNAPDRAGON:
+                return ItemID.GRIMY_SNAPDRAGON;
+            case CADANTINE:
+                return ItemID.GRIMY_CADANTINE;
+            case LANTADYME:
+                return ItemID.GRIMY_LANTADYME;
+            case DWARF_WEED:
+                return ItemID.GRIMY_DWARF_WEED;
+            case TORSTOL:
+                return ItemID.GRIMY_TORSTOL;
+            default:
+                return -1;
         }
     }
 
@@ -444,16 +558,24 @@ public class HerbPatchHelper {
      */
     public boolean processHerbPatchWithConfig(HerbPatch patch, HerbFarmingConfig config) {
         PlantState state = HerbPatchChecker.checkHerbPatch(client, patch);
+        updateCompostTracking(patch, state);
 
         switch (state) {
             case WEEDS:
                 return rakePatch(patch);
 
             case PLANT:
+                if (!hasCompostApplied(patch)) {
+                    boolean composted = applyConfiguredCompost(patch, config);
+                    if (composted) {
+                        markCompostApplied(patch);
+                        return true;
+                    }
+                }
                 return plantConfiguredSeed(patch, config);
 
             case GROWING:
-                return applyConfiguredCompost(patch, config);
+                return false;
 
             case DISEASED:
                 return curePatch(patch);

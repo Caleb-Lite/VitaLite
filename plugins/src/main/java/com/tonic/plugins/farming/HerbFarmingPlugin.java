@@ -2,9 +2,12 @@ package com.tonic.plugins.farming;
 
 import com.google.inject.Provides;
 import com.tonic.Logger;
+import com.tonic.api.widgets.InventoryAPI;
 import com.tonic.data.wrappers.PlayerEx;
 import com.tonic.plugins.farming.enums.HerbPatch;
 import com.tonic.plugins.farming.enums.PlantState;
+import com.tonic.services.pathfinder.Walker;
+import com.tonic.util.ThreadPool;
 import lombok.Getter;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -18,8 +21,14 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.inject.Inject;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Future;
 
 @PluginDescriptor(
         name = "Herb Farming",
@@ -44,14 +53,25 @@ public class HerbFarmingPlugin extends Plugin {
 
     // Track last processed tick for each patch to avoid spam
     private final Map<HerbPatch, Integer> lastProcessedTick = new HashMap<>();
-    private static final int PROCESS_COOLDOWN_TICKS = 10; // 6 seconds between auto-processes
+    private static final int PROCESS_COOLDOWN_TICKS = 2;
 
     // Track last action tick globally to prevent multiple actions per tick
     private int lastActionTick = 0;
 
     // Cache patch states to avoid reading varbits on every render
     @Getter
-    private final Map<HerbPatch, PlantState> patchStateCache = new HashMap<>();
+    private final Map<HerbPatch, PlantState> patchStateCache =
+            Collections.synchronizedMap(new EnumMap<>(HerbPatch.class));
+
+    private static final Set<PlantState> ATTENTION_STATES = EnumSet.of(
+            PlantState.WEEDS,
+            PlantState.PLANT,
+            PlantState.DISEASED,
+            PlantState.DEAD,
+            PlantState.HARVESTABLE
+    );
+
+    private Future<?> walkerTask;
 
     @Provides
     HerbFarmingConfig provideConfig(ConfigManager configManager) {
@@ -85,6 +105,8 @@ public class HerbFarmingPlugin extends Plugin {
         // Clear helper
         patchHelper = null;
 
+        cancelWalkingTask();
+
         // Clear tracking
         lastProcessedTick.clear();
         patchStateCache.clear();
@@ -109,6 +131,7 @@ public class HerbFarmingPlugin extends Plugin {
             return;
         }
         int playerRegionId = playerLocation.getRegionID();
+        cleanupCompletedWalk();
 
         // Update patch state cache for all patches
         for (HerbPatch patch : HerbPatch.values()) {
@@ -132,20 +155,48 @@ public class HerbFarmingPlugin extends Plugin {
             return;
         }
 
+        // Dump weeds before any other farming action to preserve inventory space
+        if (patchHelper != null) {
+            int weedsDropped = patchHelper.dropWeeds();
+            if (weedsDropped > 0) {
+                Logger.info("[Farming]: Dropped " + weedsDropped + " weed" + (weedsDropped == 1 ? "" : "s"));
+                lastActionTick = currentTick;
+                return;
+            }
+
+            // Note harvested herbs so long as we're blocked from harvesting (full) or patch work is complete
+            if (shouldNoteGrimyHerbs(playerRegionId) && patchHelper.noteGrimyHerbs(config)) {
+                Logger.info("[Farming]: Noted grimy " + config.herbType().name().toLowerCase(Locale.ROOT) + " herbs");
+                lastActionTick = currentTick;
+                return;
+            }
+        }
+
         // Global action cooldown to prevent multiple actions per tick
         if (currentTick - lastActionTick < PROCESS_COOLDOWN_TICKS) {
             return;
         }
 
         // Check each enabled patch
+        boolean localPatchNeedsAttention = false;
+        boolean cancelledWalkerThisTick = false;
         for (HerbPatch patch : HerbPatch.values()) {
             // Skip if patch is not enabled
             if (!HerbPatchHelper.isPatchEnabled(patch, config)) {
                 continue;
             }
 
+            boolean patchInRegion = patch.getRegionId() == playerRegionId;
+            if (patchInRegion && patchNeedsAttention(patch)) {
+                localPatchNeedsAttention = true;
+                if (!cancelledWalkerThisTick && (walkerTask != null || Walker.isWalking())) {
+                    cancelWalkingTask();
+                    cancelledWalkerThisTick = true;
+                }
+            }
+
             // Skip if patch is not in current region
-            if (patch.getRegionId() != playerRegionId) {
+            if (!patchInRegion) {
                 continue;
             }
 
@@ -164,6 +215,10 @@ public class HerbFarmingPlugin extends Plugin {
                     break;  // Only process one patch per tick
                 }
             }
+        }
+
+        if (!localPatchNeedsAttention) {
+            attemptWalkToNextPatch(playerLocation);
         }
     }
 
@@ -240,5 +295,107 @@ public class HerbFarmingPlugin extends Plugin {
         }
 
         return processedCount;
+    }
+
+    private void cleanupCompletedWalk() {
+        if (walkerTask != null && walkerTask.isDone()) {
+            walkerTask = null;
+        }
+    }
+
+    private boolean patchNeedsAttention(HerbPatch patch) {
+        return ATTENTION_STATES.contains(getPatchState(patch));
+    }
+
+    private void attemptWalkToNextPatch(WorldPoint playerLocation) {
+        if (playerLocation == null) {
+            return;
+        }
+        if ((walkerTask != null && !walkerTask.isDone()) || Walker.isWalking()) {
+            return;
+        }
+
+        HerbPatch target = findNextPatchNeedingAttention(playerLocation);
+        if (target == null) {
+            return;
+        }
+
+        WorldPoint destination = HerbPatchTravelPoints.get(target);
+        Logger.info("[Farming] Walking to " + target.getName() + " patch (" + getPatchState(target) + ") via " + destination);
+        walkerTask = ThreadPool.submit(() -> {
+            Walker.walkTo(destination, () -> shouldCancelWalk(target));
+        });
+    }
+
+    private HerbPatch findNextPatchNeedingAttention(WorldPoint playerLocation) {
+        int currentRegionId = playerLocation.getRegionID();
+        HerbPatch candidate = null;
+        int closestDistance = Integer.MAX_VALUE;
+
+        for (HerbPatch patch : HerbPatch.values()) {
+            if (!HerbPatchHelper.isPatchEnabled(patch, config)) {
+                continue;
+            }
+
+            if (patch.getRegionId() == currentRegionId) {
+                continue;
+            }
+
+            if (!patchNeedsAttention(patch)) {
+                continue;
+            }
+
+            WorldPoint destination = HerbPatchTravelPoints.get(patch);
+            int distance = playerLocation.distanceTo(destination);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                candidate = patch;
+            }
+        }
+
+        return candidate;
+    }
+
+    private boolean shouldCancelWalk(HerbPatch patch) {
+        return patch == null ||
+                !HerbPatchHelper.isPatchEnabled(patch, config) ||
+                !patchNeedsAttention(patch);
+    }
+
+    private void cancelWalkingTask() {
+        if (walkerTask != null && !walkerTask.isDone()) {
+            Walker.cancel();
+            walkerTask.cancel(true);
+        }
+        walkerTask = null;
+    }
+
+    /**
+     * Determines whether grimy herbs should be noted this tick.
+     * Requires inventory to contain the configured herb and either be full or have the local patch growing.
+     */
+    private boolean shouldNoteGrimyHerbs(int playerRegionId) {
+        int herbId = HerbPatchHelper.getConfiguredGrimyHerbId(config);
+        if (herbId == -1 || !InventoryAPI.contains(herbId)) {
+            return false;
+        }
+
+        if (InventoryAPI.isFull()) {
+            return true;
+        }
+
+        for (HerbPatch patch : HerbPatch.values()) {
+            if (!HerbPatchHelper.isPatchEnabled(patch, config)) {
+                continue;
+            }
+
+            if (patch.getRegionId() != playerRegionId) {
+                continue;
+            }
+
+            return patchStateCache.getOrDefault(patch, PlantState.UNKNOWN) == PlantState.GROWING;
+        }
+
+        return false;
     }
 }
