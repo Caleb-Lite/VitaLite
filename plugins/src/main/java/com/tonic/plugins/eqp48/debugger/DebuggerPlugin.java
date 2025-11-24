@@ -8,6 +8,10 @@ import net.runelite.api.*;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.MenuOptionClicked;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.NpcID;
+import net.runelite.api.gameval.ObjectID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.config.ConfigManager;
@@ -20,7 +24,10 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +49,12 @@ public class DebuggerPlugin extends Plugin
     private final Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private final List<ChatMessageData> recentChatMessages = new ArrayList<>();
     private static final long CHAT_MESSAGE_BUFFER_MS = 3000; // Keep messages for 3 seconds
+    // Pre-compute lookups so we can log gameval/WidgetInfo names alongside numeric IDs.
+    private static final Map<Integer, String> INTERFACE_ID_NAMES = buildGameValLookup(InterfaceID.class);
+    private static final Map<Integer, String> ITEM_ID_NAMES = buildGameValLookup(ItemID.class);
+    private static final Map<Integer, String> OBJECT_ID_NAMES = buildGameValLookup(ObjectID.class);
+    private static final Map<Integer, String> NPC_ID_NAMES = buildGameValLookup(NpcID.class);
+    private static final Map<Integer, String> WIDGET_INFO_NAMES = buildWidgetInfoLookup();
 
     @Provides
     DebuggerConfig provideConfig(ConfigManager configManager)
@@ -524,6 +537,8 @@ public class DebuggerPlugin extends Plugin
                 json.put("sourceItemId", data.selectedWidget.getItemId());
                 json.put("targetName", cleanTarget(data.widget.getName()));
                 json.put("targetItemId", data.widget.getItemId());
+                addWidgetLookupFields(json, data.selectedWidget, "source");
+                addItemLookupFields(json, data.widget.getItemId(), "target");
             }
             else
             {
@@ -533,6 +548,7 @@ public class DebuggerPlugin extends Plugin
                 if (itemId > 0)
                 {
                     json.put("itemId", itemId);
+                    addItemLookupFields(json, itemId, "");
                 }
                 else
                 {
@@ -561,6 +577,22 @@ public class DebuggerPlugin extends Plugin
                 {
                     json.put(entry.getKey(), entry.getValue());
                 }
+            }
+        }
+        else
+        {
+            // Non-widget interactions: decorate IDs with gameval names where we can.
+            if ("TileItem".equals(data.type))
+            {
+                addItemLookupFields(json, data.id, "");
+            }
+            else if ("TileObject".equals(data.type))
+            {
+                addObjectLookupFields(json, data.id, "");
+            }
+            else if ("Actor".equals(data.type))
+            {
+                addNpcLookupFields(json, data.id, "");
             }
         }
 
@@ -627,6 +659,7 @@ public class DebuggerPlugin extends Plugin
         details.put("widgetId", widgetId);
         details.put("interfaceId", interfaceId);
         details.put("childId", childId);
+        addWidgetLookupFields(details, widget, "");
         details.put("index", widget.getIndex());
         details.put("parentId", widget.getParentId());
         details.put("widgetType", widget.getType());
@@ -648,6 +681,7 @@ public class DebuggerPlugin extends Plugin
         if (itemId > 0)
         {
             details.put("itemId", itemId);
+            addItemLookupFields(details, itemId, "");
         }
 
         int itemQuantity = widget.getItemQuantity();
@@ -689,6 +723,7 @@ public class DebuggerPlugin extends Plugin
                 childInfo.put("widget", WidgetInfo.TO_GROUP(childWidgetId) + ":" + WidgetInfo.TO_CHILD(childWidgetId));
                 childInfo.put("widgetId", childWidgetId);
                 childInfo.put("index", child.getIndex());
+                addWidgetLookupFields(childInfo, child, "");
 
                 String childName = child.getName();
                 if (childName != null && !childName.isEmpty())
@@ -734,6 +769,118 @@ public class DebuggerPlugin extends Plugin
         }
 
         return details;
+    }
+
+    private static Map<Integer, String> buildGameValLookup(Class<?> rootClass)
+    {
+        Map<Integer, String> map = new HashMap<>();
+        collectGameValFields(rootClass, "", map);
+        return map;
+    }
+
+    private static void collectGameValFields(Class<?> clazz, String prefix, Map<Integer, String> out)
+    {
+        for (Field field : clazz.getDeclaredFields())
+        {
+            int modifiers = field.getModifiers();
+            if (Modifier.isStatic(modifiers) && Modifier.isFinal(modifiers) && field.getType() == int.class)
+            {
+                try
+                {
+                    int value = field.getInt(null);
+                    out.putIfAbsent(value, prefix + field.getName());
+                }
+                catch (IllegalAccessException ignored)
+                {
+                    // ignore inaccessible fields
+                }
+            }
+        }
+
+        for (Class<?> nested : clazz.getDeclaredClasses())
+        {
+            String nestedPrefix = prefix.isEmpty() ? nested.getSimpleName() + "." : prefix + nested.getSimpleName() + ".";
+            collectGameValFields(nested, nestedPrefix, out);
+        }
+    }
+
+    private static Map<Integer, String> buildWidgetInfoLookup()
+    {
+        Map<Integer, String> map = new HashMap<>();
+        for (WidgetInfo info : WidgetInfo.values())
+        {
+            map.putIfAbsent(info.getId(), info.name());
+        }
+        return map;
+    }
+
+    private static void addWidgetLookupFields(Map<String, Object> target, Widget widget, String prefix)
+    {
+        if (widget == null)
+        {
+            return;
+        }
+
+        String widgetGameValName = INTERFACE_ID_NAMES.get(widget.getId());
+        if (widgetGameValName != null)
+        {
+            target.put(prefixed(prefix, "widgetGameVal"), widgetGameValName);
+            target.put(prefixed(prefix, "widgetGameValFull"), "InterfaceID." + widgetGameValName);
+        }
+
+        String widgetInfoName = WIDGET_INFO_NAMES.get(widget.getId());
+        if (widgetInfoName != null)
+        {
+            target.put(prefixed(prefix, "widgetInfoName"), widgetInfoName);
+            target.put(prefixed(prefix, "widgetInfoFull"), "WidgetInfo." + widgetInfoName);
+        }
+
+        int itemId = widget.getItemId();
+        if (itemId > 0)
+        {
+            addItemLookupFields(target, itemId, prefix);
+        }
+    }
+
+    private static void addItemLookupFields(Map<String, Object> target, int itemId, String prefix)
+    {
+        String itemGameValName = ITEM_ID_NAMES.get(itemId);
+        if (itemGameValName != null)
+        {
+            target.put(prefixed(prefix, "itemIdGameVal"), itemGameValName);
+            target.put(prefixed(prefix, "itemIdGameValFull"), "ItemID." + itemGameValName);
+        }
+    }
+
+    private static void addObjectLookupFields(Map<String, Object> target, int objectId, String prefix)
+    {
+        String objGameValName = OBJECT_ID_NAMES.get(objectId);
+        if (objGameValName != null)
+        {
+            target.put(prefixed(prefix, "objectIdGameVal"), objGameValName);
+            target.put(prefixed(prefix, "objectIdGameValFull"), "ObjectID." + objGameValName);
+        }
+    }
+
+    private static void addNpcLookupFields(Map<String, Object> target, int npcId, String prefix)
+    {
+        String npcGameValName = NPC_ID_NAMES.get(npcId);
+        if (npcGameValName != null)
+        {
+            target.put(prefixed(prefix, "npcIdGameVal"), npcGameValName);
+            target.put(prefixed(prefix, "npcIdGameValFull"), "NpcID." + npcGameValName);
+        }
+    }
+
+    private static String prefixed(String prefix, String key)
+    {
+        if (prefix == null || prefix.isEmpty())
+        {
+            return key;
+        }
+
+        // Ensure lowerCamel when prefix is applied (e.g., "source" + "WidgetGameVal" -> "sourceWidgetGameVal")
+        return prefix + Character.toUpperCase(key.charAt(0)) + key.substring(1);
     }
 
 
