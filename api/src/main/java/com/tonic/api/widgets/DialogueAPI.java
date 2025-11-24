@@ -22,7 +22,7 @@ import java.util.List;
  */
 public class DialogueAPI
 {
-    private static final net.runelite.client.config.ConfigManager configManager = Static.getInjector().getInstance(ConfigManager.class);
+    private static final ConfigManager configManager = Static.getInjector().getInstance(ConfigManager.class);
 
 	/**
      * Retrieves the header of the current dialogue, which may indicate the speaker or context.

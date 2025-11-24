@@ -205,19 +205,6 @@ public class InventoryAPI
         WidgetAPI.interact(action, InterfaceID.Inventory.ITEMS, slot, id);
     }
 
-    private static int getAction(ItemEx item, String... options)
-    {
-        for(String option : options)
-        {
-            int action = getAction(item, option);
-            if(action != -1)
-            {
-                return action;
-            }
-        }
-        return -1;
-    }
-
     /**
      * drag an item in your inventory to another slot
      * @param item item
