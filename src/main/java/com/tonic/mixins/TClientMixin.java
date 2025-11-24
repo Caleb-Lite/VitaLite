@@ -10,20 +10,21 @@ import com.tonic.model.ui.VitaLiteOptionsPanel;
 @Mixin("Client")
 public abstract class TClientMixin implements TClient
 {
-    @Shadow("revision")
-    public static int revision;
-
-    @Override
-    public int getRevision()
-    {
-        return revision;
-    }
-
     @Shadow("packetWriter")
     private static TPacketWriter packetWriter;
 
     @Shadow("MouseHandler_instance")
     private static TMouseHandler mouseHandler;
+
+    @Shadow("heading")
+    private static int shipHeading;
+
+    @Inject
+    @Override
+    public int getShipHeading()
+    {
+        return shipHeading;
+    }
 
     @Inject
     @Override

@@ -3,6 +3,8 @@ package com.tonic.queries.abstractions;
 import com.tonic.api.entities.ActorAPI;
 import com.tonic.api.game.SceneAPI;
 import com.tonic.data.wrappers.ActorEx;
+import com.tonic.data.wrappers.PlayerEx;
+import com.tonic.util.Distance;
 import com.tonic.util.Location;
 import com.tonic.util.TextUtil;
 import net.runelite.api.Actor;
@@ -46,6 +48,26 @@ public abstract class AbstractActorQuery<T extends ActorEx<?>, Q extends Abstrac
     }
 
     /**
+     * filter reachable actors
+     * @return ActorQuery
+     */
+    public Q isReachable()
+    {
+        WorldPoint playerLoc = PlayerEx.getLocal().getWorldPoint();
+        return keepIf(o -> SceneAPI.isReachable(playerLoc, o.getWorldPoint()));
+    }
+
+    /**
+     * filter actors that the player has line of sight to
+     * @return ActorQuery
+     */
+    public Q hasLos()
+    {
+        WorldPoint playerLoc = PlayerEx.getLocal().getWorldPoint();
+        return keepIf(o -> SceneAPI.hasLineOfSightTo(playerLoc, o.getWorldPoint()));
+    }
+
+    /**
      * filter actors that are already interacting
      * @return ActorQuery
      */
@@ -72,7 +94,7 @@ public abstract class AbstractActorQuery<T extends ActorEx<?>, Q extends Abstrac
     public Q within(int distance) {
         return keepIf(o -> {
             WorldPoint playerLoc = client.getLocalPlayer().getWorldLocation();
-            return Location.getDistance(playerLoc, o.getWorldPoint()) <= distance;
+            return Distance.chebyshev(playerLoc, o.getWorldPoint()) <= distance;
         });
     }
 
@@ -84,7 +106,7 @@ public abstract class AbstractActorQuery<T extends ActorEx<?>, Q extends Abstrac
      */
     public Q within(WorldPoint center, int distance)
     {
-        return keepIf(o -> Location.within(center, o.getWorldPoint(), distance));
+        return keepIf(o -> Distance.chebyshev(center, o.getWorldPoint()) <= distance);
     }
 
     /**

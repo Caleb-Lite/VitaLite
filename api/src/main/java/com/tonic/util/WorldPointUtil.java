@@ -1,7 +1,12 @@
 package com.tonic.util;
 
 import com.tonic.Static;
+import com.tonic.api.game.sailing.SailingAPI;
+import com.tonic.data.wrappers.ActorEx;
+import com.tonic.data.wrappers.PlayerEx;
 import net.runelite.api.Client;
+import net.runelite.api.Projection;
+import net.runelite.api.WorldEntity;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldArea;
@@ -10,6 +15,7 @@ import net.runelite.api.coords.WorldPoint;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 import static net.runelite.api.Constants.*;
 
@@ -312,8 +318,124 @@ public class WorldPointUtil {
         return other.getX() >= x && other.getX() <= maxX && other.getY() >= y && other.getY() <= maxY;
     }
 
+    /**
+     * Checks if two WorldAreas overlap.
+     * @param a the first WorldArea
+     * @param b the second WorldArea
+     * @return true if the areas overlap, false otherwise
+     */
     public static boolean overlaps(WorldArea a, WorldArea b)
     {
         return a.toWorldPointList().stream().anyMatch(b.toWorldPointList()::contains);
+    }
+
+    /**
+     * Gets the relative position of a WorldPoint to a WorldArea.
+     * @param area the WorldArea
+     * @param point the WorldPoint
+     * @return the relative position
+     */
+    public static RelativePosition getRelativePosition(WorldArea area, WorldPoint point) {
+        // Check if planes differ - could return null or a special value
+        if (area.getPlane() != point.getPlane()) {
+            return null; // Different plane, no relative position
+        }
+
+        int areaMinX = area.getX();
+        int areaMaxX = area.getX() + area.getWidth() - 1;
+        int areaMinY = area.getY();
+        int areaMaxY = area.getY() + area.getHeight() - 1;
+
+        int px = point.getX();
+        int py = point.getY();
+
+        // Check if inside
+        if (px >= areaMinX && px <= areaMaxX && py >= areaMinY && py <= areaMaxY) {
+            return RelativePosition.INSIDE;
+        }
+
+        // Determine position relative to area
+        boolean isNorth = py > areaMaxY;
+        boolean isSouth = py < areaMinY;
+        boolean isEast = px > areaMaxX;
+        boolean isWest = px < areaMinX;
+
+        // Return diagonal positions if applicable
+        if (isNorth && isEast) return RelativePosition.NORTH_EAST;
+        if (isNorth && isWest) return RelativePosition.NORTH_WEST;
+        if (isSouth && isEast) return RelativePosition.SOUTH_EAST;
+        if (isSouth && isWest) return RelativePosition.SOUTH_WEST;
+
+        // Return cardinal directions
+        if (isNorth) return RelativePosition.NORTH;
+        if (isSouth) return RelativePosition.SOUTH;
+        if (isEast) return RelativePosition.EAST;
+        return RelativePosition.WEST;
+    }
+
+    /**
+     * Gets the WorldPoint of the local player in the top-level worldview from a sub worldview
+     * @return the WorldPoint in the top-level worldview
+     */
+    public static WorldPoint getTopWorldViewLocation()
+    {
+        return getTopWorldViewLocation(PlayerEx.getLocal());
+    }
+
+    /**
+     * Gets the WorldPoint of the given actor in the top-level worldview from a sub worldview
+     * @param actor the actor
+     * @return the WorldPoint in the top-level worldview
+     */
+    public static WorldPoint getTopWorldViewLocation(ActorEx<?> actor) {
+        if (actor == null)
+            return null;
+
+        return getTopWorldViewLocation(actor.getLocalPoint());
+    }
+
+    /**
+     * Gets the WorldPoint in the top-level worldview from a sub worldview
+     * @param worldView the actor's worldview
+     * @param worldPoint the actor's worldpoint
+     * @return the WorldPoint in the top-level worldview
+     */
+    public static WorldPoint getTopWorldViewLocation(WorldView worldView, WorldPoint worldPoint) {
+        if (worldView.getId() == -1)
+            return worldPoint;
+
+        LocalPoint localPt = LocalPoint.fromWorld(worldView, worldPoint);
+        if( localPt == null)
+            return worldPoint;
+
+        return getTopWorldViewLocation(localPt);
+    }
+
+    /**
+     * Gets the WorldPoint in the top-level worldview from a local point
+     * @param localPt the local point
+     * @return the WorldPoint in the top-level worldview
+     */
+    public static WorldPoint getTopWorldViewLocation(LocalPoint localPt) {
+        Client client = Static.getClient();
+        LocalPoint projected = getTopWorldViewPoint(localPt);
+        return WorldPoint.fromLocal(client, Objects.requireNonNullElse(projected, localPt));
+    }
+
+    /**
+     * Gets the LocalPoint in the top-level worldview from a local point
+     * @param localPt the local point
+     * @return the LocalPoint in the top-level worldview
+     */
+    public static LocalPoint getTopWorldViewPoint(LocalPoint localPt) {
+        if(localPt == null)
+            return null;
+
+        Client client = Static.getClient();
+        WorldEntity we = client
+                .getTopLevelWorldView()
+                .worldEntities()
+                .byIndex(localPt.getWorldView());
+        return we.transformToMainWorld(localPt);
     }
 }

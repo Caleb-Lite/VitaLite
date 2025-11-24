@@ -2,6 +2,7 @@ package com.tonic.data.wrappers;
 
 import com.tonic.Static;
 import com.tonic.api.entities.NpcAPI;
+import com.tonic.api.game.SceneAPI;
 import com.tonic.util.Location;
 import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
@@ -13,7 +14,6 @@ import net.runelite.client.game.NPCManager;
 
 public class NpcEx extends ActorEx<NPC>
 {
-    private NPCComposition composition;
     public NpcEx(NPC actor) {
         super(actor);
     }
@@ -22,9 +22,14 @@ public class NpcEx extends ActorEx<NPC>
         return actor;
     }
 
-    public NPCComposition getComposition() {
-        if (composition == null) {
-            composition = Static.invoke(actor::getTransformedComposition);
+    public NPCComposition getComposition()
+    {
+        NPCComposition composition = actor.getComposition();
+        if(composition == null)
+            return null;
+        if(composition.getConfigs() != null)
+        {
+            composition = composition.transform();
         }
         return composition;
     }
@@ -68,22 +73,22 @@ public class NpcEx extends ActorEx<NPC>
 
     @Override
     public WorldPoint getWorldPoint() {
-        return actor.getWorldLocation();
+        return Static.invoke(actor::getWorldLocation);
     }
 
     @Override
     public WorldArea getWorldArea() {
-        return actor.getWorldArea();
+        return Static.invoke(actor::getWorldArea);
     }
 
     @Override
     public LocalPoint getLocalPoint() {
-        return actor.getLocalLocation();
+        return Static.invoke(actor::getLocalLocation);
     }
 
     @Override
     public Tile getTile() {
-        return Location.toTile(getWorldPoint());
+        return SceneAPI.getTile(getWorldPoint());
     }
 
     @Override

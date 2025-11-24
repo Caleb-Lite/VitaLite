@@ -216,6 +216,23 @@ public class WidgetAPI
         interact(action, widgetId, childId, -1);
     }
 
+    public static void dragWidget(Widget source, Widget dest)
+    {
+        if (source == null || dest == null) {
+            return;
+        }
+        dragWidget(source.getId(), source.getItemId(), source.getIndex(), dest.getId(), dest.getItemId(), dest.getIndex());
+    }
+
+    public static void dragWidget(int widgetId, int itemId, int slot, int widgetId2, int itemId2, int slot2)
+    {
+        TClient client = Static.getClient();
+        Static.invoke(() -> {
+            ClickManager.click(ClickType.WIDGET);
+            client.getPacketWriter().widgetDragPacket(widgetId, itemId, slot, widgetId2, itemId2, slot2);
+        });
+    }
+
     /**
      * Use a widget on a game object
      *
@@ -533,6 +550,10 @@ public class WidgetAPI
      */
     public static boolean isVisible(Widget widget)
     {
+        if(Static.isHeadless())
+        {
+            return Static.invoke(() -> widget != null && !widget.isSelfHidden());
+        }
         return Static.invoke(() -> widget != null && !widget.isHidden() && !widget.isSelfHidden());
     }
 

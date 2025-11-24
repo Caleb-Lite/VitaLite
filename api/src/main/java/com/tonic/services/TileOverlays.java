@@ -1,17 +1,26 @@
 package com.tonic.services;
 
 import com.tonic.Static;
+import com.tonic.api.TObjectComposition;
+import com.tonic.api.entities.TileObjectAPI;
+import com.tonic.api.game.SceneAPI;
 import com.tonic.api.threaded.Delays;
+import com.tonic.data.ObjectBlockAccessFlags;
+import com.tonic.data.Walls;
+import com.tonic.data.wrappers.PlayerEx;
+import com.tonic.data.wrappers.TileObjectEx;
 import com.tonic.services.pathfinder.collision.Flags;
+import com.tonic.services.pathfinder.local.CollisionUtil;
 import com.tonic.services.pathfinder.local.LocalCollisionMap;
+import com.tonic.util.RelativePosition;
 import com.tonic.util.ThreadPool;
 import com.tonic.util.TileDrawingUtil;
+import com.tonic.util.WorldPointUtil;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import net.runelite.api.Client;
-import net.runelite.api.Perspective;
-import net.runelite.api.WorldView;
+import net.runelite.api.*;
 import net.runelite.api.coords.LocalPoint;
+import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.GameTick;
 import net.runelite.client.eventbus.EventBus;
@@ -23,7 +32,9 @@ import net.runelite.client.ui.overlay.OverlayUtil;
 
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class TileOverlays extends Overlay
 {
@@ -38,6 +49,11 @@ public class TileOverlays extends Overlay
 
     @Override
     public Dimension render(Graphics2D graphics) {
+        if(Static.getVitaConfig().shouldDrawInteractable())
+        {
+            drawInteractableFrom(graphics);
+        }
+
         if(Static.getVitaConfig().shouldDrawCollision())
         {
             drawCollisionMap(graphics);
@@ -67,7 +83,7 @@ public class TileOverlays extends Overlay
             return;
 
         final Client client = Static.getClient();
-        final WorldView worldView = client.getTopLevelWorldView();
+        final WorldView worldView = PlayerEx.getLocal().getWorldView();
         final WorldPoint playerLocation = client.getLocalPlayer().getWorldLocation();
         final int MAX_DRAW_DISTANCE = 32;
 
@@ -91,9 +107,148 @@ public class TileOverlays extends Overlay
         }
     }
 
+    public void drawInteractableFrom(Graphics2D graphics2D)
+    {
+        Client client = Static.getClient();
+
+        for(TileObjectEx obj : GameManager.objectList())
+        {
+            if(obj.getType() != 2 || !obj.isInteractable())
+                continue;
+
+            ObjectComposition composition = client.getObjectDefinition(obj.getId());
+            TObjectComposition tComp = (TObjectComposition) composition;
+
+            int modelRotation = obj.getOrientation();
+            int type = obj.getConfig() & 0x1F;
+
+            int rotation = modelRotation;
+            if (type == 2 || type == 6 || type == 8) {
+                rotation -= 4;
+            } else if (type == 7) {
+                rotation = (rotation - 2) & 0x3;
+            }
+            rotation = rotation & 0x3;
+
+            WorldArea area = obj.getWorldArea();
+            int width = area.getWidth();
+            int height = area.getHeight();
+
+            WorldPoint objPos = obj.getWorldPoint();
+            int rotatedFlags = tComp.rotateBlockAccessFlags(rotation);
+
+            int newX;
+            int newY;
+            int plane;
+
+            if(obj.getTileObject() instanceof WallObject)
+            {
+                WallObject wall = (WallObject) obj.getTileObject();
+                Walls walls = Walls.of(wall);
+                if(walls.hasNorthWall())
+                {
+                    TileDrawingUtil.renderWall(graphics2D, LocalPoint.fromWorld(client, wall.getWorldLocation()), Color.RED, Wall.Direction.NORTH);
+                }
+                if(walls.hasEastWall())
+                {
+                    TileDrawingUtil.renderWall(graphics2D, LocalPoint.fromWorld(client, wall.getWorldLocation()), Color.RED, Wall.Direction.EAST);
+                }
+                if(walls.hasSouthWall())
+                {
+                    TileDrawingUtil.renderWall(graphics2D, LocalPoint.fromWorld(client, wall.getWorldLocation()), Color.RED, Wall.Direction.SOUTH);
+                }
+                if(walls.hasWestWall())
+                {
+                    TileDrawingUtil.renderWall(graphics2D, LocalPoint.fromWorld(client, wall.getWorldLocation()), Color.RED, Wall.Direction.WEST);
+                }
+                continue;
+            }
+
+            if ((rotatedFlags & ObjectBlockAccessFlags.BLOCK_NORTH) == 0) {
+                for(int x = 0; x < width; x++) {
+                    newX = objPos.getX() + x;
+                    newY = objPos.getY() + height - 1;
+                    plane = objPos.getPlane();
+                    if(!LocalCollisionMap.canStep(newX, newY + 1, plane))
+                        continue;
+                    if(Walls.of(newX, newY, plane).hasNorthWall())
+                        continue;
+                    WorldPoint wallPoint = new WorldPoint(newX, newY, plane);
+                    LocalPoint localPoint = LocalPoint.fromWorld(client, wallPoint);
+                    if(localPoint == null)
+                        continue;
+                    Shape poly = Perspective.getCanvasTilePoly(client, localPoint);
+                    if(poly != null) {
+                        TileDrawingUtil.renderWall(graphics2D, localPoint, Color.RED, Wall.Direction.NORTH);
+                    }
+                }
+            }
+
+            if ((rotatedFlags & ObjectBlockAccessFlags.BLOCK_EAST) == 0) {
+                for(int y = 0; y < height; y++) {
+                    newX = objPos.getX() + width - 1;
+                    newY = objPos.getY() + y;
+                    plane = objPos.getPlane();
+                    if(!LocalCollisionMap.canStep(newX + 1, newY, plane))
+                        continue;
+                    if(Walls.of(newX, newY, plane).hasEastWall())
+                        continue;
+                    WorldPoint wallPoint = new WorldPoint(newX, newY, plane);
+                    LocalPoint localPoint = LocalPoint.fromWorld(client, wallPoint);
+                    if(localPoint == null)
+                        continue;
+                    Shape poly = Perspective.getCanvasTilePoly(client, localPoint);
+                    if(poly != null) {
+                        TileDrawingUtil.renderWall(graphics2D, localPoint, Color.RED, Wall.Direction.EAST);
+                    }
+                }
+            }
+
+            if ((rotatedFlags & ObjectBlockAccessFlags.BLOCK_SOUTH) == 0) {
+                for(int x = 0; x < width; x++) {
+                    newX = objPos.getX() + x;
+                    newY = objPos.getY();
+                    plane = objPos.getPlane();
+                    if(!LocalCollisionMap.canStep(newX, newY - 1, plane))
+                        continue;
+                    if(Walls.of(newX, newY, plane).hasSouthWall())
+                        continue;
+                    WorldPoint wallPoint = new WorldPoint(newX, newY, plane);
+                    LocalPoint localPoint = LocalPoint.fromWorld(client, wallPoint);
+                    if(localPoint == null)
+                        continue;
+                    Shape poly = Perspective.getCanvasTilePoly(client, localPoint);
+                    if(poly != null) {
+                        TileDrawingUtil.renderWall(graphics2D, localPoint, Color.RED, Wall.Direction.SOUTH);
+                    }
+                }
+            }
+
+            if ((rotatedFlags & ObjectBlockAccessFlags.BLOCK_WEST) == 0) {
+                for(int y = 0; y < height; y++) {
+                    newX = objPos.getX();
+                    newY = objPos.getY() + y;
+                    plane = objPos.getPlane();
+                    if(!LocalCollisionMap.canStep(newX - 1, newY, plane))
+                        continue;
+                    if(Walls.of(newX, newY, plane).hasWestWall())
+                        continue;
+                    WorldPoint wallPoint = new WorldPoint(newX, newY, plane);
+                    LocalPoint localPoint = LocalPoint.fromWorld(client, wallPoint);
+                    if(localPoint == null)
+                        continue;
+                    Shape poly = Perspective.getCanvasTilePoly(client, localPoint);
+                    if(poly != null) {
+                        TileDrawingUtil.renderWall(graphics2D, localPoint, Color.RED, Wall.Direction.WEST);
+                    }
+                }
+            }
+        }
+    }
+
     public void drawCollisionMap(Graphics2D graphics) {
         Client client = Static.getClient();
-        WorldView wv = client.getTopLevelWorldView();
+        WorldView wv = PlayerEx.getLocal().getWorldView();
         if(wv.getCollisionMaps() == null || wv.getCollisionMaps()[wv.getPlane()] == null)
             return;
 

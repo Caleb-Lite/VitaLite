@@ -5,6 +5,7 @@ import com.tonic.Static;
 import com.tonic.events.PacketReceived;
 import com.tonic.events.PacketSent;
 import com.tonic.model.ui.components.*;
+import com.tonic.packets.PacketBuffer;
 import com.tonic.services.ClickManager;
 import com.tonic.services.ClickStrategy;
 import com.tonic.services.mouserecorder.DecodedMousePacket;
@@ -14,8 +15,14 @@ import com.tonic.services.mouserecorder.trajectory.ui.TrajectoryTrainerMonitor;
 import com.tonic.services.mouserecorder.trajectory.ui.TrajectorySettingsPanel;
 import com.tonic.services.pathfinder.PathfinderAlgo;
 import com.tonic.services.mouserecorder.MovementVisualization;
+import com.tonic.services.profiler.ProfilerWindow;
+import com.tonic.util.Profiler;
 import com.tonic.util.ReflectBuilder;
+import com.tonic.util.StaticIntFinder;
 import com.tonic.util.ThreadPool;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.ItemID;
+
 import javax.swing.*;
 import java.awt.*;
 
@@ -252,16 +259,6 @@ public class VitaLiteOptionsPanel extends VPluginPanel {
                 drawPath,
                 () -> Static.getVitaConfig().setShouldDrawWalkerPath(drawPath.isSelected())
         ));
-        walkerPanel.addVerticalStrut(12);
-
-        ToggleSlider drawCollision = new ToggleSlider();
-        drawCollision.setSelected(Static.getVitaConfig().shouldDrawCollision());
-        walkerPanel.addContent(createToggleOption(
-                "Draw Tile Collision",
-                "Draw tile collision on the floating and mini maps",
-                drawCollision,
-                () -> Static.getVitaConfig().setShouldDrawCollision(drawCollision.isSelected())
-        ));
 
         if(!Static.isRunningFromShadedJar())
         {
@@ -272,6 +269,59 @@ public class VitaLiteOptionsPanel extends VPluginPanel {
         }
 
         contentPanel.add(walkerPanel);
+        contentPanel.add(Box.createVerticalStrut(10));
+
+        // Scene Settings
+        CollapsiblePanel scenePanel = new CollapsiblePanel("Scene");
+
+        ToggleSlider drawCollision = new ToggleSlider();
+        drawCollision.setSelected(Static.getVitaConfig().shouldDrawCollision());
+        scenePanel.addContent(createToggleOption(
+                "Draw Tile Collision",
+                "Draw tile collision on the floating and mini maps",
+                drawCollision,
+                () -> Static.getVitaConfig().setShouldDrawCollision(drawCollision.isSelected())
+        ));
+        scenePanel.addVerticalStrut(12);
+
+        ToggleSlider drawInteractable = new ToggleSlider();
+        drawInteractable.setSelected(Static.getVitaConfig().shouldDrawInteractable());
+        scenePanel.addContent(createToggleOption(
+                "Draw Interactable Faces",
+                "Draw lines showing where objects are interactable from.",
+                drawInteractable,
+                () -> Static.getVitaConfig().setShouldDrawInteractable(drawInteractable.isSelected())
+        ));
+
+        scenePanel.addVerticalStrut(12);
+
+        ToggleSlider debugStratPathing = new ToggleSlider();
+        Static.getVitaConfig().setDrawStratPath(false);
+        scenePanel.addContent(createToggleOption(
+                "Debug Strat Pathing",
+                "Define warning and impassible tiles for strategic pathfinding with overlay.",
+                debugStratPathing,
+                () -> Static.getVitaConfig().setDrawStratPath(debugStratPathing.isSelected())
+        ));
+
+        scenePanel.addVerticalStrut(12);
+
+        FancyButton distanceDebug = new FancyButton("Distance Debugger");
+        distanceDebug.addActionListener(e -> {
+            DistanceDebugger window = DistanceDebugger.getInstance();
+            if (window.isVisible())
+            {
+                window.setVisible(false);
+            }
+            else
+            {
+                window.setVisible(true);
+                window.toFront();
+            }
+        });
+        scenePanel.addContent(distanceDebug);
+
+        contentPanel.add(scenePanel);
         contentPanel.add(Box.createVerticalStrut(10));
 
         // Input Settings
@@ -418,6 +468,11 @@ public class VitaLiteOptionsPanel extends VPluginPanel {
 
         // Debug Settings
         CollapsiblePanel debugPanel = new CollapsiblePanel("Debug");
+
+        FancyButton profilerButton = new FancyButton("Profiler");
+        profilerButton.addActionListener(e -> ProfilerWindow.toggle());
+        debugPanel.addContent(profilerButton);
+        debugPanel.addVerticalStrut(12);
 
         FancyButton checkButton = new FancyButton("Check Platform Info");
         checkButton.addActionListener(e -> PlatformInfoViewer.toggle());
@@ -613,7 +668,7 @@ public class VitaLiteOptionsPanel extends VPluginPanel {
 
             if(logMousePacketsToggle.isSelected() || recordTrajectory.isSelected() && isMouse == 2)
             {
-                DecodedMousePacket decodedInfo = MousePacketDecoder.decode(event.getBuffer());
+                DecodedMousePacket decodedInfo = MousePacketDecoder.decode(event.getFreshBuffer());
                 if(recordTrajectory.isSelected())
                 {
                     TrajectoryService.getPacketCapture().submitDecodedPacket(decodedInfo);

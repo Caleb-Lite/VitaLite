@@ -29,7 +29,7 @@ public class TileDrawingUtil
     }
 
     public static void drawNorthLine(Client client, Graphics2D graphics, LocalPoint localLocation, Color color, int strokeWidth) {
-        var wv = client.getWorldView(localLocation.getWorldView());
+        var wv = client.getTopLevelWorldView();
         if (wv == null) return;
 
         int plane = wv.getPlane();
@@ -160,7 +160,7 @@ public class TileDrawingUtil
     private static Shape finaObjectShape(LocalPoint location) {
         Client client = Static.getClient();
         WorldPoint worldPoint = WorldPoint.fromLocal(client, location);
-        TileObjectEx obj = new TileObjectQuery<>()
+        TileObjectEx obj = new TileObjectQuery()
                 .keepIf(o -> o.getWorldArea().contains(worldPoint))
                 .first();
 

@@ -1,7 +1,8 @@
 package com.tonic.api.threaded;
 
 import com.tonic.Static;
-import com.tonic.api.entities.PlayerAPI;
+import com.tonic.api.entities.NpcAPI;
+import com.tonic.data.wrappers.NpcEx;
 import com.tonic.data.wrappers.PlayerEx;
 import com.tonic.util.AsyncTask;
 import com.tonic.services.GameManager;
@@ -100,7 +101,6 @@ public class Delays
      */
     public static boolean waitUntil(Supplier<Boolean> condition, int ticks)
     {
-
         int end = GameManager.getTickCount() + ticks;
         while(!condition.get())
         {

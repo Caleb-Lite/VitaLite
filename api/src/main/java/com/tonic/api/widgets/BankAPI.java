@@ -12,6 +12,7 @@ import com.tonic.services.GameManager;
 import net.runelite.api.Client;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.VarbitID;
 
 import java.util.List;
@@ -275,9 +276,7 @@ public class BankAPI
      */
     public static void withdraw(int id, int amount, boolean noted) {
         setWithdrawMode(noted);
-        ItemEx item = Static.invoke(() ->
-                InventoryQuery.fromInventoryId(InventoryID.BANK).withId(id).first()
-        );
+        ItemEx item = InventoryQuery.fromInventoryId(InventoryID.BANK).withId(id).first();
 
         if(item == null)
             return;
@@ -486,9 +485,7 @@ public class BankAPI
      */
     public static int getSlot(String itemName)
     {
-        ItemEx item = Static.invoke(() ->
-                InventoryQuery.fromInventoryId(InventoryID.BANK).withName(itemName).first()
-        );
+        ItemEx item = InventoryQuery.fromInventoryId(InventoryID.BANK).withName(itemName).first();
         if(item == null)
             return -1;
         return item.getSlot();
@@ -499,9 +496,7 @@ public class BankAPI
      * @param itemId The id of the item to use.
      */
     public static void use(int itemId) {
-        ItemEx item = Static.invoke(() ->
-                InventoryQuery.fromInventoryId(InventoryID.INV).withId(itemId).first()
-        );
+        ItemEx item = InventoryQuery.fromInventoryId(InventoryID.INV).withId(itemId).first();
         if(item == null)
             return;
         WidgetAPI.interact(9, InterfaceID.Bankside.ITEMS, item.getSlot(), itemId);
@@ -521,6 +516,28 @@ public class BankAPI
     }
 
     /**
+     * Uses the item with the specified id from the bank container.
+     * @param itemId The id of the item to use.
+     */
+    public static void bankUse(int itemId) {
+        ItemEx item = InventoryQuery.fromInventoryId(InventoryID.INV).withId(itemId).first();
+        if(item == null)
+            return;
+        WidgetAPI.interact(9, InterfaceID.Bankmain.ITEMS, item.getSlot(), itemId);
+    }
+
+    /**
+     * Uses the item with the specified name from the bank container.
+     * @param itemName The name of the item to use.
+     */
+    public static void bankUse(String itemName) {
+        ItemEx item = InventoryQuery.fromInventoryId(InventoryID.BANK).withName(itemName).first();
+        if(item == null)
+            return;
+        WidgetAPI.interact(9, InterfaceID.Bankmain.ITEMS, item.getSlot(), item.getId());
+    }
+
+    /**
      * Attempts to guess the slot an item will be withdrawn into (for use in programatically
      * 1-ticking interactions with withdrawn items) and "uses" the item. Not guarenteed to be
      * 100% accurate.
@@ -537,5 +554,96 @@ public class BankAPI
             return;
         }
         WidgetAPI.interact(9, InterfaceID.Bankside.ITEMS, slot, itemId);
+    }
+
+    /**
+     * drag an item in your bank to another slot
+     * @param item item
+     * @param toSlot to slot
+     */
+    public static void dragItem(ItemEx item, int toSlot)
+    {
+        if(item == null)
+            return;
+
+        dragItem(item.getId(), item.getSlot(), toSlot);
+    }
+
+    /**
+     * drag an item in your bank to another slot
+     * @param id item id
+     * @param toSlot to slot
+     */
+    public static void dragItem(int id, int toSlot)
+    {
+        ItemEx item = search().withId(id).first();
+        if(item == null)
+            return;
+
+        dragItem(id, item.getSlot(), toSlot);
+    }
+
+    /**
+     * drag an item in your bank to another slot
+     * @param itemId item itemId
+     * @param fromSlot from slot
+     * @param toSlot to slot
+     */
+    public static void dragItem(int itemId, int fromSlot, int toSlot)
+    {
+        ItemEx item = search().fromSlot(fromSlot).first();
+        if(item == null || item.getId() != itemId)
+            return;
+
+        ItemEx item2 = search().fromSlot(toSlot).first();
+        int itemId2 = ItemID.BLANKOBJECT;
+        if (item2 != null)
+            itemId2 = item2.getId();
+
+        WidgetAPI.dragWidget(InterfaceID.Bankmain.ITEMS, item.getId(), item.getSlot(), InterfaceID.Bankmain.ITEMS, itemId2, toSlot);
+    }
+
+    /**
+     * Drag an item to a new bank tab
+     * @param item item
+     * @param toTab bank tab (0,1,2,3...)
+     */
+    public static void dragItemToTab(ItemEx item, int toTab)
+    {
+        if(item == null)
+            return;
+
+        dragItemToTab(item.getId(), item.getSlot(), toTab);
+    }
+
+    /**
+     * Drag an item to a new bank tab
+     * @param id item id
+     * @param toTab bank tab (0,1,2,3...)
+     */
+    public static void dragItemToTab(int id, int toTab)
+    {
+        ItemEx item = search().withId(id).first();
+        if(item == null)
+            return;
+
+        dragItemToTab(id, item.getSlot(), toTab);
+    }
+
+    /**
+     * Drag an item to a new bank tab
+     * @param itemId item itemId
+     * @param fromSlot from slot
+     * @param toTab bank tab (0,1,2,3...)
+     */
+    public static void dragItemToTab(int itemId, int fromSlot, int toTab)
+    {
+        ItemEx item = search().fromSlot(fromSlot).first();
+        if(item == null || item.getId() != itemId)
+            return;
+
+        int tabIndex = toTab + 10;
+
+        WidgetAPI.dragWidget(InterfaceID.Bankmain.ITEMS, item.getId(), item.getSlot(), InterfaceID.Bankmain.TABS, -1, tabIndex);
     }
 }

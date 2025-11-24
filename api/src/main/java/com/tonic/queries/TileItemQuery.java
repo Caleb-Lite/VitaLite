@@ -1,9 +1,11 @@
 package com.tonic.queries;
 
 import com.tonic.api.game.SceneAPI;
+import com.tonic.data.wrappers.PlayerEx;
 import com.tonic.queries.abstractions.AbstractQuery;
 import com.tonic.services.GameManager;
 import com.tonic.data.wrappers.TileItemEx;
+import com.tonic.util.Distance;
 import com.tonic.util.Location;
 import com.tonic.util.TextUtil;
 import net.runelite.api.coords.WorldPoint;
@@ -73,7 +75,7 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery greaterThanShopPrice(int price)
     {
-        return removeIf(o -> o.getShopPrice() <= price);
+        return removeIf(o -> (long) o.getQuantity() * o.getShopPrice() <= price);
     }
 
     /**
@@ -83,7 +85,7 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery lessThanShopPrice(int price)
     {
-        return removeIf(o -> o.getShopPrice() >= price);
+        return removeIf(o -> (long) o.getQuantity() * o.getShopPrice() >= price);
     }
 
     /**
@@ -93,7 +95,7 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery greaterThanGePrice(int price)
     {
-        return removeIf(o -> o.getGePrice() <= price);
+        return removeIf(o -> (long) o.getQuantity() * o.getGePrice() <= price);
     }
 
     /**
@@ -103,7 +105,7 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery lessThanGePrice(int price)
     {
-        return removeIf(o -> o.getGePrice() >= price);
+        return removeIf(o -> (long) o.getQuantity() * o.getGePrice() >= price);
     }
 
     /**
@@ -113,7 +115,7 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery greaterThanHighAlchValue(int value)
     {
-        return removeIf(o -> o.getHighAlchValue() <= value);
+        return removeIf(o -> (long) o.getQuantity() * o.getHighAlchValue() <= value);
     }
 
     /**
@@ -123,7 +125,7 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery lessThanHighAlchValue(int value)
     {
-        return removeIf(o -> o.getHighAlchValue() >= value);
+        return removeIf(o -> (long) o.getQuantity() * o.getHighAlchValue() >= value);
     }
 
     /**
@@ -133,7 +135,7 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery greaterThanLowAlchValue(int value)
     {
-        return removeIf(o -> o.getLowAlchValue() <= value);
+        return removeIf(o -> (long) o.getQuantity() * o.getLowAlchValue() <= value);
     }
 
     /**
@@ -143,7 +145,7 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery lessThanLowAlchValue(int value)
     {
-        return removeIf(o -> o.getLowAlchValue() >= value);
+        return removeIf(o -> (long) o.getQuantity() * o.getLowAlchValue() >= value);
     }
 
     /**
@@ -173,7 +175,8 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery within(int distance)
     {
-        return keepIf(o -> Location.within(client.getLocalPlayer().getWorldLocation(), o.getWorldPoint(), distance));
+        WorldPoint player = PlayerEx.getLocal().getWorldPoint();
+        return keepIf(o -> Distance.chebyshev(player, o.getWorldPoint()) <= distance);
     }
 
     /**
@@ -184,7 +187,7 @@ public class TileItemQuery extends AbstractQuery<TileItemEx, TileItemQuery>
      */
     public TileItemQuery within(WorldPoint center, int distance)
     {
-        return keepIf(o -> Location.within(center, o.getWorldPoint(), distance));
+        return keepIf(o -> Distance.chebyshev(center, o.getWorldPoint()) <= distance);
     }
 
     /**
