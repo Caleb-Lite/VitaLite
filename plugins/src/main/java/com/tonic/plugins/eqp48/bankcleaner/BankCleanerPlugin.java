@@ -9,13 +9,13 @@ import com.tonic.api.threaded.Delays;
 import com.tonic.api.widgets.BankAPI;
 import com.tonic.api.widgets.GrandExchangeAPI;
 import com.tonic.api.widgets.InventoryAPI;
-import com.tonic.data.wrappers.TileObjectEx;
-import com.tonic.data.wrappers.ItemEx;
 import com.tonic.data.GrandExchangeSlot;
+import com.tonic.data.wrappers.TileObjectEx;
 import com.tonic.plugins.bankvaluer.BankValuerUtils;
 import com.tonic.queries.TileObjectQuery;
 import com.tonic.util.VitaPlugin;
-import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.ObjectID;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.plugins.PluginDescriptor;
 
@@ -30,13 +30,11 @@ import java.util.concurrent.ThreadLocalRandom;
 
 @PluginDescriptor(
         name = "# Bank Cleaner",
-        description = "Withdraws the 28 highest value bank items and opens the GE booth.",
+        description = "Sells all tradeable items from your bank at 1 gp.",
         tags = {"bank", "value", "ge"}
 )
 public class BankCleanerPlugin extends VitaPlugin
 {
-    private static final int GE_BOOTH_ID = 10061;
-
     @Inject
     private BankCleanerConfig config;
     private boolean finished;
@@ -107,7 +105,7 @@ public class BankCleanerPlugin extends VitaPlugin
             humanTick();
         }
 
-        if (InventoryAPI.isFull())
+        if (!InventoryAPI.isEmpty())
         {
             clickExchangeBooth();
             sellInventoryAtGe();
@@ -116,8 +114,6 @@ public class BankCleanerPlugin extends VitaPlugin
         {
             Logger.warn("[BankCleaner] Unable to fill inventory with top-valued items.");
         }
-
-        finished = true;
     }
 
     private List<Integer> getTopItemIds()
@@ -138,7 +134,7 @@ public class BankCleanerPlugin extends VitaPlugin
     private void clickExchangeBooth()
     {
         TileObjectEx booth = new TileObjectQuery()
-                .withId(GE_BOOTH_ID)
+                .withId(ObjectID.EXCHANGE_BANK_WALL_EXCHANGE)
                 .sortNearest()
                 .first();
 
@@ -162,13 +158,11 @@ public class BankCleanerPlugin extends VitaPlugin
 
         List<SellItem> itemsToSell = InventoryAPI.getItems().stream()
                 .filter(item -> item != null && item.getId() > 0)
-                .filter(item -> item.getId() != net.runelite.api.gameval.ItemID.COINS && item.getId() != net.runelite.api.gameval.ItemID.PLATINUM)
-                .map(item -> new SellItem(item.getId(), item.getQuantity(), false))
+                .filter(item -> item.getId() != ItemID.COINS)
+                .map(item -> new SellItem(item.getId(), item.getQuantity()))
                 .collect(Collectors.toList());
 
         List<ActiveSale> activeSlots = new ArrayList<>();
-        int baseTicks = config.sellUnderPercent().getFivePercentTicks();
-        int relistTicks = baseTicks - 2; // Additional 10% under for relists.
 
         while (!itemsToSell.isEmpty() || !activeSlots.isEmpty())
         {
@@ -187,50 +181,34 @@ public class BankCleanerPlugin extends VitaPlugin
                 {
                     GrandExchangeAPI.collectAll();
                     iterator.remove();
+                    humanTick();
                 }
             }
 
-            // Cancel remaining open offers and queue for relist with deeper undercut.
-            if (!activeSlots.isEmpty())
+            // Fill any free slots with new sell offers at 1 gp.
+            while (!itemsToSell.isEmpty() && GrandExchangeAPI.freeSlot() != -1)
             {
-                List<SellItem> relistQueue = new ArrayList<>();
-                iterator = activeSlots.iterator();
-                while (iterator.hasNext())
-                {
-                    ActiveSale sale = iterator.next();
-                    GrandExchangeAPI.cancel(sale.slot);
-                    humanTick();
-                    relistQueue.add(new SellItem(sale.itemId, sale.quantity, true));
-                    iterator.remove();
-                    humanTick();
-                }
-                GrandExchangeAPI.collectAll();
-                humanTick();
-                itemsToSell.addAll(relistQueue);
-            }
-
-            // Fill any free slots with new sell offers, reducing price by 10% (-2 ticks of 5%).
-            while (!itemsToSell.isEmpty())
-            {
-                int slotNumber = GrandExchangeAPI.freeSlot();
-                if (slotNumber == -1)
+                SellItem item = itemsToSell.get(0);
+                GrandExchangeSlot slot = GrandExchangeAPI.startSellOffer(item.itemId, item.quantity, 1);
+                if (slot == null)
                 {
                     break;
                 }
 
-                SellItem item = itemsToSell.remove(0);
-                GrandExchangeSlot slot = GrandExchangeSlot.getBySlot(slotNumber);
-                if (slot == null)
-                {
-                    continue;
-                }
-
-                int fivePercentTicks = item.relisted ? relistTicks : baseTicks;
-                GrandExchangeAPI.startSellOfferPercentage(item.itemId, item.quantity, fivePercentTicks, slotNumber);
+                itemsToSell.remove(0);
                 activeSlots.add(new ActiveSale(slot, item.itemId, item.quantity));
                 humanTick();
             }
 
+            humanTick();
+        }
+
+        // If we're sitting in the GE with only gp left, immediately reopen the bank for the next batch.
+        if (GrandExchangeAPI.isOpen() && InventoryAPI.getItems().stream()
+                .filter(item -> item != null && item.getId() > 0)
+                .allMatch(item -> item.getId() == ItemID.COINS))
+        {
+            BankBuilder.get().open().build().execute();
             humanTick();
         }
     }
@@ -264,13 +242,11 @@ public class BankCleanerPlugin extends VitaPlugin
     {
         private final int itemId;
         private final int quantity;
-        private final boolean relisted;
 
-        private SellItem(int itemId, int quantity, boolean relisted)
+        private SellItem(int itemId, int quantity)
         {
             this.itemId = itemId;
             this.quantity = quantity;
-            this.relisted = relisted;
         }
     }
 
